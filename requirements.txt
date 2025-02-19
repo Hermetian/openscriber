@@ -1,0 +1,4 @@
+PyQt5>=5.15.0
+pyaudio>=0.2.11
+cryptography>=3.4.7
+openai-whisper>=20231117 
