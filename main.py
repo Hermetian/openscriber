@@ -1,11 +1,16 @@
 import sys
 import os
+os.environ["LLAMA_DISABLE_METAL"] = "1"
+os.environ["GGML_METAL_DISABLE"] = "1"
+os.environ["LLAMA_DISABLE_MLOCK"] = "1"
 import threading
 import time
 import wave
 import datetime
 import numpy as np
 import json
+import requests
+from tqdm import tqdm
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QWidget,
@@ -18,6 +23,21 @@ import pyaudio
 from cryptography.fernet import Fernet
 import whisper
 
+# --- Auto-install required packages ---
+try:
+    from huggingface_hub import hf_hub_download
+except ImportError:
+    print("Installing huggingface_hub...")
+    os.system(f"{sys.executable} -m pip install --upgrade huggingface_hub")
+    from huggingface_hub import hf_hub_download
+
+try:
+    from llama_cpp import Llama
+except ImportError:
+    print("Installing llama-cpp-python...")
+    os.system(f"{sys.executable} -m pip install --upgrade llama-cpp-python")
+    from llama_cpp import Llama
+
 # --- Global Constants & Directories ---
 TRANSCRIPTS_DIR = "transcripts"
 AUDIO_DIR = "audio"
@@ -26,6 +46,37 @@ KEY_FILE = "key.key"
 for folder in [TRANSCRIPTS_DIR, AUDIO_DIR]:
     if not os.path.exists(folder):
         os.makedirs(folder)
+
+# --- Model Download Helper and Constants for Llama ---
+MODELS_DIR = "models"
+if not os.path.exists(MODELS_DIR):
+    os.makedirs(MODELS_DIR)
+
+MODEL_REPO = "bartowski/Llama-3.2-3B-Instruct-GGUF"
+MODEL_FILENAME = "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+MODEL_PATH = os.path.join(MODELS_DIR, MODEL_FILENAME)
+
+def download_llama_model():
+    """Download the LLaMA model from Hugging Face if it doesn't exist."""
+    if os.path.exists(MODEL_PATH):
+        print(f"Model already exists at {MODEL_PATH}")
+        return True
+    
+    print(f"Downloading LLaMA model to {MODEL_PATH}...")
+    try:
+        hf_hub_download(
+            repo_id=MODEL_REPO,
+            filename=MODEL_FILENAME,
+            local_dir=MODELS_DIR,
+            local_dir_use_symlinks=False
+        )
+        print("Download complete!")
+        return True
+    except Exception as e:
+        print(f"Error downloading model: {str(e)}")
+        print("Please ensure you have accepted the model license on Hugging Face and are logged in.")
+        print("You can login using: huggingface-cli login")
+        return False
 
 # --- Encryption Helpers ---
 def load_or_create_key():
@@ -66,10 +117,21 @@ def transcribe_audio(audio_file):
 
 def summarize_text(text):
     """
-    Replace this stub with an actual local LLaMA-based summarization.
+    Summarize text using a local LLaMA 3.2 model via llama_cpp.
     """
-    time.sleep(2)  # simulate processing delay
-    return f"Summary: {text[:50]}..."
+    if not os.path.exists(MODEL_PATH):
+        download_llama_model()
+
+    if not hasattr(summarize_text, "model"):
+        summarize_text.model = Llama(model_path=MODEL_PATH, n_ctx=512, n_gpu_layers=0, use_mlock=False, verbose=True)
+    
+    prompt = f"Summarize the following text concisely:\n{text}\nSummary:" 
+    response = summarize_text.model(prompt, max_tokens=150, temperature=0.7)
+    if "choices" in response and len(response["choices"]) > 0:
+        summary = response["choices"][0]["text"].strip()
+    else:
+        summary = "No summary generated."
+    return summary
 
 # --- Login Dialog ---
 class LoginDialog(QDialog):

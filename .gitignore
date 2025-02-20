@@ -6,6 +6,9 @@ node_modules
 transcripts/*
 audio/*
 
+#models
+models/*
+
 # Other
 implementation.md
 key.key
