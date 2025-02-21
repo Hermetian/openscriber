@@ -9,8 +9,6 @@ import wave
 import datetime
 import numpy as np
 import json
-import requests
-from tqdm import tqdm
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QWidget,
@@ -32,11 +30,11 @@ except ImportError:
     from huggingface_hub import hf_hub_download
 
 try:
-    from llama_cpp import Llama
+    from ctransformers import AutoModelForCausalLM
 except ImportError:
-    print("Installing llama-cpp-python...")
-    os.system(f"{sys.executable} -m pip install --upgrade llama-cpp-python")
-    from llama_cpp import Llama
+    print("Installing ctransformers...")
+    os.system(f"{sys.executable} -m pip install ctransformers")
+    from ctransformers import AutoModelForCausalLM
 
 # --- Global Constants & Directories ---
 TRANSCRIPTS_DIR = "transcripts"
@@ -52,17 +50,17 @@ MODELS_DIR = "models"
 if not os.path.exists(MODELS_DIR):
     os.makedirs(MODELS_DIR)
 
-MODEL_REPO = "bartowski/Llama-3.2-3B-Instruct-GGUF"
-MODEL_FILENAME = "Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+MODEL_REPO = "TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+MODEL_FILENAME = "mistral-7b-instruct-v0.2.Q5_K_M.gguf"
 MODEL_PATH = os.path.join(MODELS_DIR, MODEL_FILENAME)
 
 def download_llama_model():
-    """Download the LLaMA model from Hugging Face if it doesn't exist."""
+    """Download the Mistral 7B model from Hugging Face if it doesn't exist."""
     if os.path.exists(MODEL_PATH):
         print(f"Model already exists at {MODEL_PATH}")
         return True
     
-    print(f"Downloading LLaMA model to {MODEL_PATH}...")
+    print(f"Downloading Mistral 7B model to {MODEL_PATH}...")
     try:
         hf_hub_download(
             repo_id=MODEL_REPO,
@@ -117,18 +115,21 @@ def transcribe_audio(audio_file):
 
 def summarize_text(text):
     """
-    Summarize text using a local LLaMA 3.2 model via llama_cpp.
+    Summarize text using a local Mistral 7B model via ctransformers.
     """
-    if not os.path.exists(MODEL_PATH):
-        download_llama_model()
-
     if not hasattr(summarize_text, "model"):
-        summarize_text.model = Llama(model_path=MODEL_PATH, n_ctx=512, n_gpu_layers=0, use_mlock=False, verbose=True)
-    
-    prompt = f"Summarize the following text concisely:\n{text}\nSummary:" 
-    response = summarize_text.model(prompt, max_tokens=150, temperature=0.7)
-    if "choices" in response and len(response["choices"]) > 0:
+        summarize_text.model = AutoModelForCausalLM.from_pretrained(
+            MODEL_REPO,
+            model_file=MODEL_FILENAME,
+            model_type="llama",
+            gpu_layers=0
+        )
+    prompt = f"Summarize the following text concisely:\n{text}\nSummary:"
+    response = summarize_text.model(prompt, max_new_tokens=150, threads=8)
+    if isinstance(response, dict) and "choices" in response and len(response["choices"]) > 0:
         summary = response["choices"][0]["text"].strip()
+    elif isinstance(response, str):
+        summary = response.strip()
     else:
         summary = "No summary generated."
     return summary

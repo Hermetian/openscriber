@@ -12,3 +12,4 @@ models/*
 # Other
 implementation.md
 key.key
+.env
