@@ -8,6 +8,7 @@ audio/*
 
 #models
 models/*
+llama.cpp/*
 
 # Other
 implementation.md

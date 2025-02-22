@@ -1,0 +1,17 @@
+[
+    {
+        "name": "Medication Side Effects",
+        "prompt": "Describe any side effects the patient is experiencing with their current medication",
+        "enabled": true
+    },
+    {
+        "name": "Current Medications",
+        "prompt": "What medication was prescribed to the patient",
+        "enabled": true
+    },
+    {
+        "name": "FOR SIGMAR!!!",
+        "prompt": "You are a faithful warrior of Sigmar who has somehow been conscripted into analyzing transcripts. You are to check for any indication of heresy. if there is nothing heretical, then say clearly \"NO HERESY DETECTED, PRAISE SIGMAR!\" But remember that the Ruinous Powers are as determined as they are cunning.",
+        "enabled": true
+    }
+]

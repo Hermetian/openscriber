@@ -13,7 +13,7 @@ import json
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QWidget,
     QLabel, QListWidget, QHBoxLayout, QLineEdit, QDialog,
-    QFormLayout, QMessageBox, QProgressBar
+    QFormLayout, QMessageBox, QProgressBar, QInputDialog
 )
 from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
 
@@ -40,6 +40,64 @@ except ImportError:
 TRANSCRIPTS_DIR = "transcripts"
 AUDIO_DIR = "audio"
 KEY_FILE = "key.key"
+PROMPTS_CONFIG_FILE = "prompts_config.json"
+
+# Default psychiatric prompts
+DEFAULT_PROMPTS = [
+    {
+        "name": "Medication Side Effects",
+        "prompt": "Describe any side effects the patient is experiencing with their current medication",
+        "enabled": True
+    },
+    {
+        "name": "Current Medications",
+        "prompt": "What medication was prescribed to the patient",
+        "enabled": True
+    }
+]
+
+class PromptConfig:
+    def __init__(self):
+        self.prompts = []
+        self.load_or_create_config()
+    
+    def load_or_create_config(self):
+        if os.path.exists(PROMPTS_CONFIG_FILE):
+            with open(PROMPTS_CONFIG_FILE, 'r') as f:
+                self.prompts = json.load(f)
+        else:
+            self.prompts = DEFAULT_PROMPTS
+            self.save_config()
+    
+    def save_config(self):
+        with open(PROMPTS_CONFIG_FILE, 'w') as f:
+            json.dump(self.prompts, f, indent=4)
+    
+    def add_prompt(self, name, prompt_text):
+        self.prompts.append({
+            "name": name,
+            "prompt": prompt_text,
+            "enabled": True
+        })
+        self.save_config()
+    
+    def remove_prompt(self, name):
+        self.prompts = [p for p in self.prompts if p["name"] != name]
+        self.save_config()
+    
+    def update_prompt(self, name, new_text):
+        for prompt in self.prompts:
+            if prompt["name"] == name:
+                prompt["prompt"] = new_text
+                break
+        self.save_config()
+    
+    def toggle_prompt(self, name):
+        for prompt in self.prompts:
+            if prompt["name"] == name:
+                prompt["enabled"] = not prompt["enabled"]
+                break
+        self.save_config()
 
 for folder in [TRANSCRIPTS_DIR, AUDIO_DIR]:
     if not os.path.exists(folder):
@@ -135,6 +193,94 @@ def summarize_text(text):
     return summary
 
 # --- Login Dialog ---
+class PromptDialog(QDialog):
+    def __init__(self, prompt_config, parent=None):
+        super(PromptDialog, self).__init__(parent)
+        self.prompt_config = prompt_config
+        self.setWindowTitle("Manage Prompts")
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Prompt list
+        self.prompt_list = QListWidget()
+        self.refresh_prompt_list()
+        layout.addWidget(self.prompt_list)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        add_button = QPushButton("Add")
+        add_button.clicked.connect(self.add_prompt)
+        button_layout.addWidget(add_button)
+        
+        edit_button = QPushButton("Edit")
+        edit_button.clicked.connect(self.edit_prompt)
+        button_layout.addWidget(edit_button)
+        
+        delete_button = QPushButton("Delete")
+        delete_button.clicked.connect(self.delete_prompt)
+        button_layout.addWidget(delete_button)
+        
+        toggle_button = QPushButton("Toggle")
+        toggle_button.clicked.connect(self.toggle_prompt)
+        button_layout.addWidget(toggle_button)
+        
+        layout.addLayout(button_layout)
+        
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(self.accept)
+        layout.addWidget(close_button)
+    
+    def refresh_prompt_list(self):
+        self.prompt_list.clear()
+        for prompt in self.prompt_config.prompts:
+            status = "✓" if prompt["enabled"] else "✗"
+            self.prompt_list.addItem(f"{status} {prompt['name']}")
+    
+    def add_prompt(self):
+        name, ok = QInputDialog.getText(self, "Add Prompt", "Enter prompt name:")
+        if ok and name:
+            prompt_text, ok = QInputDialog.getMultiLineText(self, "Add Prompt", "Enter prompt text:")
+            if ok and prompt_text:
+                self.prompt_config.add_prompt(name, prompt_text)
+                self.refresh_prompt_list()
+    
+    def edit_prompt(self):
+        current = self.prompt_list.currentItem()
+        if current:
+            name = current.text()[2:]  # Remove status symbol
+            for prompt in self.prompt_config.prompts:
+                if prompt["name"] == name:
+                    new_text, ok = QInputDialog.getMultiLineText(
+                        self, "Edit Prompt", "Edit prompt text:",
+                        prompt["prompt"]
+                    )
+                    if ok:
+                        self.prompt_config.update_prompt(name, new_text)
+                    break
+    
+    def delete_prompt(self):
+        current = self.prompt_list.currentItem()
+        if current:
+            name = current.text()[2:]  # Remove status symbol
+            reply = QMessageBox.question(
+                self, "Delete Prompt",
+                f"Are you sure you want to delete the prompt '{name}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.Yes:
+                self.prompt_config.remove_prompt(name)
+                self.refresh_prompt_list()
+    
+    def toggle_prompt(self):
+        current = self.prompt_list.currentItem()
+        if current:
+            name = current.text()[2:]  # Remove status symbol
+            self.prompt_config.toggle_prompt(name)
+            self.refresh_prompt_list()
+
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super(LoginDialog, self).__init__(parent)
@@ -160,11 +306,16 @@ class MainWindow(QMainWindow):
     transcription_done = pyqtSignal(str, str)
     transcription_progress_update = pyqtSignal(int)
     summary_done = pyqtSignal(str)
+    prompt_result_ready = pyqtSignal(str, str)  # prompt_name, result
 
     def __init__(self):
         super(MainWindow, self).__init__()
         self.setWindowTitle("OpenChart - Telemedicine Transcriber")
         self.resize(900, 600)
+        
+        # Initialize prompt configuration
+        self.prompt_config = PromptConfig()
+        self.prompt_results = {}  # Store results for each prompt
         
         # Audio recording parameters (PyAudio)
         self.audio = pyaudio.PyAudio()
@@ -183,6 +334,7 @@ class MainWindow(QMainWindow):
         self.transcription_done.connect(self.on_transcription_done)
         self.transcription_progress_update.connect(self.update_transcription_progress)
         self.summary_done.connect(self.on_summary_done)
+        self.prompt_result_ready.connect(self.on_prompt_result_ready)
         
         # For auto logout a QTimer could be added here to track inactivity.
         # self.logout_timer = QTimer(self)
@@ -226,14 +378,17 @@ class MainWindow(QMainWindow):
         self.transcript_text.setPlaceholderText("Transcript appears here after recording...")
         right_panel.addWidget(self.transcript_text)
         
-        # Summary button and area
-        self.summary_button = QPushButton("Generate Summary")
-        self.summary_button.clicked.connect(self.generate_summary)
-        right_panel.addWidget(self.summary_button)
+        # Manage Prompts button
+        manage_prompts_button = QPushButton("Manage Prompts")
+        manage_prompts_button.clicked.connect(self.show_prompt_dialog)
+        right_panel.addWidget(manage_prompts_button)
         
-        self.summary_text = QTextEdit()
-        self.summary_text.setPlaceholderText("Summary appears here...")
-        right_panel.addWidget(self.summary_text)
+        # Prompts Results Area
+        prompts_group = QWidget()
+        self.prompts_layout = QVBoxLayout(prompts_group)
+        self.prompts_layout.setSpacing(10)
+        self.setup_prompt_results_ui()
+        right_panel.addWidget(prompts_group)
         
         main_layout.addLayout(right_panel)
     
@@ -368,6 +523,8 @@ class MainWindow(QMainWindow):
         transcript_filename = os.path.join(TRANSCRIPTS_DIR, f"transcript_{timestamp}.bin")
         save_encrypted_transcript(transcript_filename, transcript)
         self.refresh_transcript_list()
+        # Run all prompts automatically
+        self.run_all_prompts()
     
     def generate_summary(self):
         transcript = self.transcript_text.toPlainText().strip()
@@ -398,8 +555,9 @@ class MainWindow(QMainWindow):
         filepath = os.path.join(TRANSCRIPTS_DIR, fname)
         transcript = load_encrypted_transcript(filepath)
         self.transcript_text.setPlainText(transcript)
-        # Clear summary if a different transcript is viewed.
-        self.summary_text.clear()
+        # Clear prompt results if a different transcript is viewed.
+        self.prompt_results = {}
+        self.setup_prompt_results_ui()
         self.status_label.setText(f"Loaded transcript: {fname}")
     
     # For auto logout you could override eventFilter here:
@@ -422,6 +580,103 @@ class MainWindow(QMainWindow):
         self.transcription_progress.setVisible(True)
         self.transcription_progress.setRange(0, 100)
         self.transcription_progress.setValue(progress)
+
+    def setup_prompt_results_ui(self):
+        """Set up the UI for displaying prompt results"""
+        # Clear existing prompt results widgets
+        for i in reversed(range(self.prompts_layout.count())): 
+            self.prompts_layout.itemAt(i).widget().setParent(None)
+        
+        # Create widgets for each prompt
+        for prompt in self.prompt_config.prompts:
+            if prompt["enabled"]:
+                group = QWidget()
+                layout = QVBoxLayout(group)
+                
+                # Header with prompt name and buttons
+                header = QHBoxLayout()
+                name_label = QLabel(prompt["name"])
+                name_label.setStyleSheet("font-weight: bold;")
+                header.addWidget(name_label)
+                
+                rerun_button = QPushButton("Re-run")
+                rerun_button.clicked.connect(lambda p=prompt["name"]: self.rerun_prompt(p))
+                header.addWidget(rerun_button)
+                
+                copy_button = QPushButton("Copy")
+                copy_button.clicked.connect(lambda p=prompt["name"]: self.copy_prompt_result(p))
+                header.addWidget(copy_button)
+                
+                layout.addLayout(header)
+                
+                # Result text area
+                result_text = QTextEdit()
+                result_text.setPlaceholderText("Results will appear here...")
+                if prompt["name"] in self.prompt_results:
+                    result_text.setPlainText(self.prompt_results[prompt["name"]])
+                result_text.textChanged.connect(
+                    lambda p=prompt["name"], t=result_text: self.on_prompt_result_edited(p, t)
+                )
+                layout.addWidget(result_text)
+                
+                self.prompts_layout.addWidget(group)
+    
+    def show_prompt_dialog(self):
+        """Show the prompt management dialog"""
+        dialog = PromptDialog(self.prompt_config, self)
+        if dialog.exec_() == QDialog.Accepted:
+            self.setup_prompt_results_ui()
+    
+    def rerun_prompt(self, prompt_name):
+        """Re-run a specific prompt"""
+        for prompt in self.prompt_config.prompts:
+            if prompt["name"] == prompt_name:
+                self.run_prompt(prompt)
+                break
+    
+    def copy_prompt_result(self, prompt_name):
+        """Copy a prompt's result to clipboard"""
+        if prompt_name in self.prompt_results:
+            QApplication.clipboard().setText(self.prompt_results[prompt_name])
+    
+    def on_prompt_result_edited(self, prompt_name, text_edit):
+        """Handle manual editing of prompt results"""
+        self.prompt_results[prompt_name] = text_edit.toPlainText()
+    
+    def run_prompt(self, prompt):
+        """Run a single prompt against the current transcript"""
+        transcript = self.transcript_text.toPlainText()
+        if not transcript:
+            return
+        
+        # Create the full prompt with context
+        full_prompt = f"Based on the following transcript, {prompt['prompt']}:\n\n{transcript}"
+        
+        # Run in background thread
+        thread = threading.Thread(
+            target=self.process_prompt,
+            args=(prompt["name"], full_prompt)
+        )
+        thread.start()
+    
+    def process_prompt(self, prompt_name, full_prompt):
+        """Process a prompt in the background"""
+        try:
+            result = summarize_text(full_prompt)
+            self.prompt_result_ready.emit(prompt_name, result)
+        except Exception as e:
+            self.prompt_result_ready.emit(prompt_name, f"Error processing prompt: {str(e)}")
+    
+    def on_prompt_result_ready(self, prompt_name, result):
+        """Handle completion of prompt processing"""
+        self.prompt_results[prompt_name] = result
+        self.setup_prompt_results_ui()  # Refresh the UI
+    
+    def run_all_prompts(self):
+        """Run all enabled prompts"""
+        for prompt in self.prompt_config.prompts:
+            if prompt["enabled"]:
+                self.run_prompt(prompt)
 
 def main():
     app = QApplication(sys.argv)
