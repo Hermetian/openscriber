@@ -17,3 +17,29 @@ llama.cpp/*
 implementation.md
 key.key
 .env
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / build directories
+build/
+dist/
+*.egg-info/
+
+# Virtual environment directories
+venv/
+.env/
+.venv/
+ENV/
+
+# Pytest and MyPy caches
+.pytest_cache/
+.mypy_cache/
+
+# Editor directories and files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

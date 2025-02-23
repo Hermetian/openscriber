@@ -1,42 +1,60 @@
-Objective
+# OpenChart
 
-OpenChart is a Whisper/LLAMA wrapper that allows telemedicine practitioners to automatically transcribe their sessions and get summaries suitable for copying into EHR software.
+A telemedicine transcription and analysis tool that helps healthcare providers efficiently process and analyze patient conversations.
 
-Key principles
-1) Easy to install & use
-2) HIPAA compliant
--Access control 
--Automatic logout
--All stored patient data encrypted.
-3) Runs (slowly, but still functional) on your potato PC
+## Features
 
-Features
+- Real-time audio recording and transcription
+- Automated analysis of medical conversations
+- Customizable analysis prompts
+- Secure storage of transcripts and audio
+- Multi-user support with individual encryption
 
-Audio recording
-	-Starting point of OpenChart: user simply presses 🟥 to record.
--Runs Whisper transcription concurrently
--Audio logs deleted within 2-7 days of being transcribed
-	Saves space
-	I don’t want to have to encrypt them
-Videogames taught me exactly what happens to people who leave audio diaries just laying around
-Transcript management
-	-List of transcripts, ordered by time & date
-	-Click on any given transcript to expand out
-	-Linked to auto summary
-		*Shows status of summary if incomplete
-		*Enable uploading of audio/video recordings created outside of OpenChart
-		*Ability to rerun summary if necessary
-Auto summary
-	-Starts with some psychiatrist-focused prompts
-		Will speak to users to ask about their specific charting needs
-Focus on what LLMs can do well (e.g. describe side effects of current medication instead of, say, ‘does patient exhibit any new disorders)
-	-User can create, edit, and save prompts
-	-Prompts auto-run in background if not already executed
-	-Button to rerun prompts if necessary
-	-Ability to edit output in-line
-	-One-button copy of output
+## Installation
 
-System Reqs
+```bash
+pip install openchart
+```
 
-Windows or Mac, 16Gb RAM, integrated or non-performant video card
-	-Likely will be building in Electron
+## Requirements
+
+- Python 3.8 or higher
+- PyQt5 for the GUI
+- PyAudio for audio recording
+- Whisper for transcription
+- Other dependencies are automatically installed
+
+## Usage
+
+1. Run the application:
+```bash
+openchart
+```
+
+2. Create an account or log in
+3. Start recording your medical conversation
+4. The application will automatically transcribe and analyze the conversation
+5. View and copy the results as needed
+
+## Development Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/yourusername/openchart.git
+cd openchart
+```
+
+2. Create a virtual environment:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -e .
+```
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

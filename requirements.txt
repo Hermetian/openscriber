@@ -1,4 +1,8 @@
 PyQt5>=5.15.0
 pyaudio>=0.2.11
 cryptography>=3.4.7
-openai-whisper>=20231117 
+openai-whisper>=20231117
+ctransformers>=0.2.27
+huggingface-hub>=0.19.4
+numpy>=1.25.2,<2.0.0
+tqdm>=4.64.0 
