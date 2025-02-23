@@ -9,6 +9,10 @@ import wave
 import datetime
 import numpy as np
 import json
+import pyaudio
+from cryptography.fernet import Fernet
+import whisper
+import hashlib
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextEdit, QVBoxLayout, QWidget,
@@ -16,10 +20,6 @@ from PyQt5.QtWidgets import (
     QFormLayout, QMessageBox, QProgressBar, QInputDialog
 )
 from PyQt5.QtCore import Qt, QTimer, QEvent, pyqtSignal
-
-import pyaudio
-from cryptography.fernet import Fernet
-import whisper
 
 # --- Auto-install required packages ---
 try:
@@ -46,12 +46,12 @@ PROMPTS_CONFIG_FILE = "prompts_config.json"
 DEFAULT_PROMPTS = [
     {
         "name": "Medication Side Effects",
-        "prompt": "Describe any side effects the patient is experiencing with their current medication",
+        "prompt": "Describe any side effects the patient is experiencing with their current medication. Be succinct and do not provide additional information beyond the list of side effects, or \"NONE\" if no side effects are mentioned.",
         "enabled": True
     },
     {
         "name": "Current Medications",
-        "prompt": "What medication was prescribed to the patient",
+        "prompt": "Provide a list of medication prescribed to the patent as a result of the current visit. This should include any medication that they are currently taking that was prescribed by the same doctor in an earlier visit. List the dose strength and medication name. Do not provide additional context.",
         "enabled": True
     }
 ]
@@ -62,14 +62,21 @@ class PromptConfig:
         self.load_or_create_config()
     
     def load_or_create_config(self):
+        """Load prompts from user-specific config file or create with defaults"""
         if os.path.exists(PROMPTS_CONFIG_FILE):
-            with open(PROMPTS_CONFIG_FILE, 'r') as f:
-                self.prompts = json.load(f)
+            try:
+                with open(PROMPTS_CONFIG_FILE, 'r') as f:
+                    self.prompts = json.load(f)
+            except json.JSONDecodeError:
+                self.prompts = DEFAULT_PROMPTS
+                self.save_config()
         else:
-            self.prompts = DEFAULT_PROMPTS
+            self.prompts = DEFAULT_PROMPTS.copy()
             self.save_config()
     
     def save_config(self):
+        """Save prompts to user-specific config file"""
+        os.makedirs(os.path.dirname(PROMPTS_CONFIG_FILE), exist_ok=True)
         with open(PROMPTS_CONFIG_FILE, 'w') as f:
             json.dump(self.prompts, f, indent=4)
     
@@ -284,21 +291,48 @@ class PromptDialog(QDialog):
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super(LoginDialog, self).__init__(parent)
-        self.setWindowTitle("Login")
+        self.setWindowTitle("Login / Create Account")
+        self.user_manager = UserManager()
         layout = QFormLayout(self)
-        self.password_input = QLineEdit(self)
+        
+        self.username_input = QLineEdit()
+        layout.addRow("Username:", self.username_input)
+        
+        self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
         layout.addRow("Password:", self.password_input)
-        self.password_input.returnPressed.connect(self.check_password)
+        
+        buttons_layout = QHBoxLayout()
+        login_button = QPushButton("Login")
+        login_button.clicked.connect(self.login)
+        create_button = QPushButton("Create Account")
+        create_button.clicked.connect(self.create_account)
+        buttons_layout.addWidget(login_button)
+        buttons_layout.addWidget(create_button)
+        layout.addRow(buttons_layout)
+        
         self.setLayout(layout)
-        self.correct_password = "demo"  # hard-coded for demonstration
+        self.username = None
 
-    def check_password(self):
-        if self.password_input.text() == self.correct_password:
+    def login(self):
+        username = self.username_input.text().strip()
+        password = self.password_input.text().strip()
+        if self.user_manager.validate_user(username, password):
+            self.username = username
             self.accept()
         else:
-            QMessageBox.warning(self, "Error", "Incorrect password")
-            self.password_input.clear()
+            QMessageBox.warning(self, "Login Failed", "Incorrect username or password.")
+
+    def create_account(self):
+        username = self.username_input.text().strip()
+        password = self.password_input.text().strip()
+        if username == "" or password == "":
+            QMessageBox.warning(self, "Error", "Username and password cannot be empty.")
+            return
+        if self.user_manager.create_user(username, password):
+            QMessageBox.information(self, "Account Created", "Account created successfully! You can now log in.")
+        else:
+            QMessageBox.warning(self, "Error", "Username already exists.")
 
 # --- Main Application Window ---
 class MainWindow(QMainWindow):
@@ -316,6 +350,7 @@ class MainWindow(QMainWindow):
         # Initialize prompt configuration
         self.prompt_config = PromptConfig()
         self.prompt_results = {}  # Store results for each prompt
+        self.prompt_edits = {}    # Store editable QLineEdit for prompt instructions
         
         # Audio recording parameters (PyAudio)
         self.audio = pyaudio.PyAudio()
@@ -586,6 +621,8 @@ class MainWindow(QMainWindow):
         # Clear existing prompt results widgets
         for i in reversed(range(self.prompts_layout.count())): 
             self.prompts_layout.itemAt(i).widget().setParent(None)
+        # Clear previous prompt edits dictionary
+        self.prompt_edits = {}
         
         # Create widgets for each prompt
         for prompt in self.prompt_config.prompts:
@@ -609,11 +646,19 @@ class MainWindow(QMainWindow):
                 
                 layout.addLayout(header)
                 
+                # Editable field for prompt text
+                prompt_edit = QLineEdit()
+                prompt_edit.setText(prompt["prompt"])
+                layout.addWidget(prompt_edit)
+                # Save the QLineEdit in the dictionary
+                self.prompt_edits[prompt["name"]] = prompt_edit
+                
                 # Result text area
                 result_text = QTextEdit()
                 result_text.setPlaceholderText("Results will appear here...")
                 if prompt["name"] in self.prompt_results:
                     result_text.setPlainText(self.prompt_results[prompt["name"]])
+                # This text area still supports in-line editing of results if needed
                 result_text.textChanged.connect(
                     lambda p=prompt["name"], t=result_text: self.on_prompt_result_edited(p, t)
                 )
@@ -628,10 +673,18 @@ class MainWindow(QMainWindow):
             self.setup_prompt_results_ui()
     
     def rerun_prompt(self, prompt_name):
-        """Re-run a specific prompt"""
+        """Re-run a specific prompt using edited prompt text if available"""
+        # Retrieve the edited prompt text if it exists
+        edited_prompt = self.prompt_edits.get(prompt_name).text() if prompt_name in self.prompt_edits else None
         for prompt in self.prompt_config.prompts:
             if prompt["name"] == prompt_name:
-                self.run_prompt(prompt)
+                # Use the edited prompt text if not empty; otherwise fallback to original
+                used_prompt = edited_prompt if edited_prompt and edited_prompt.strip() != "" else prompt["prompt"]
+                transcript = self.transcript_text.toPlainText()
+                if not transcript:
+                    return
+                full_prompt = f"Based on the following transcript, {used_prompt}:\n\n{transcript}"
+                threading.Thread(target=self.process_prompt, args=(prompt_name, full_prompt)).start()
                 break
     
     def copy_prompt_result(self, prompt_name):
@@ -673,19 +726,75 @@ class MainWindow(QMainWindow):
         self.setup_prompt_results_ui()  # Refresh the UI
     
     def run_all_prompts(self):
-        """Run all enabled prompts"""
-        for prompt in self.prompt_config.prompts:
-            if prompt["enabled"]:
-                self.run_prompt(prompt)
+        """Run all enabled prompts sequentially in one background thread."""
+        def _process_all():
+            transcript = self.transcript_text.toPlainText()
+            if not transcript:
+                return
+            for prompt in self.prompt_config.prompts:
+                if prompt["enabled"]:
+                    full_prompt = f"Based on the following transcript, {prompt['prompt']}:\n\n{transcript}"
+                    try:
+                        result = summarize_text(full_prompt)
+                    except Exception as e:
+                        result = f"Error processing prompt: {str(e)}"
+                    self.prompt_result_ready.emit(prompt["name"], result)
+        threading.Thread(target=_process_all).start()
+
+def hash_password(password):
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+class UserManager:
+    USERS_FILE = "users.json"
+    def __init__(self):
+        if os.path.exists(self.USERS_FILE):
+            with open(self.USERS_FILE, "r") as f:
+                self.users = json.load(f)
+        else:
+            self.users = {}
+
+    def save_users(self):
+        with open(self.USERS_FILE, "w") as f:
+            json.dump(self.users, f, indent=4)
+
+    def create_user(self, username, password):
+        if username in self.users:
+            return False
+        self.users[username] = hash_password(password)
+        self.save_users()
+        return True
+
+    def validate_user(self, username, password):
+        return username in self.users and self.users[username] == hash_password(password)
+
+def setup_user_environment(username):
+    global TRANSCRIPTS_DIR, AUDIO_DIR, KEY_FILE, PROMPTS_CONFIG_FILE
+    base_dir = os.path.join("users", username)
+    if not os.path.exists(base_dir):
+        os.makedirs(base_dir)
+    TRANSCRIPTS_DIR = os.path.join(base_dir, "transcripts")
+    AUDIO_DIR = os.path.join(base_dir, "audio")
+    KEY_FILE = os.path.join(base_dir, "key.key")
+    PROMPTS_CONFIG_FILE = os.path.join(base_dir, "prompts_config.json")
+    for folder in [TRANSCRIPTS_DIR, AUDIO_DIR]:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
 
 def main():
     app = QApplication(sys.argv)
     
     # Show login dialog first
     login = LoginDialog()
-    if login.exec_() != QDialog.Accepted:
-        sys.exit(0)
+    while True:
+        if login.exec_() != QDialog.Accepted:
+            sys.exit(0)
+        if login.username:  # Only proceed if we have a valid username
+            break
     
+    # Set up user-specific directories and file paths
+    setup_user_environment(login.username)
+    
+    # Create and show main window
     window = MainWindow()
     window.show()
     sys.exit(app.exec_())

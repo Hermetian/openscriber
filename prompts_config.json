@@ -1,12 +1,12 @@
 [
     {
         "name": "Medication Side Effects",
-        "prompt": "Describe any side effects the patient is experiencing with their current medication",
+        "prompt": "Describe any side effects the patient is experiencing with their current medication. Be succinct and do not provide additional information beyond the list of side effects, or \"NONE\" if no side effects are mentioned.",
         "enabled": true
     },
     {
         "name": "Current Medications",
-        "prompt": "What medication was prescribed to the patient",
+        "prompt": "Provide a list of medication prescribed to the patent as a result of the current visit. This should include any medication that they are currently taking that was prescribed by the same doctor in an earlier visit. List the dose strength and medication name. Do not provide additional context.",
         "enabled": true
     },
     {

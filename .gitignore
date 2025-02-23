@@ -5,6 +5,9 @@ node_modules
 #hippo
 transcripts/*
 audio/*
+users/*
+users.json
+.DS_Store
 
 #models
 models/*
