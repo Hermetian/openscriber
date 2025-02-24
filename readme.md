@@ -1,4 +1,4 @@
-# OpenChart
+# OpenScriber
 
 A telemedicine transcription and analysis tool that helps healthcare providers efficiently process and analyze patient conversations.
 
@@ -13,7 +13,7 @@ A telemedicine transcription and analysis tool that helps healthcare providers e
 ## Installation
 
 ```bash
-pip install openchart
+pip install openscriber
 ```
 
 ## Requirements
@@ -28,7 +28,7 @@ pip install openchart
 
 1. Run the application:
 ```bash
-openchart
+openscriber
 ```
 
 2. Create an account or log in
@@ -40,8 +40,8 @@ openchart
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/openchart.git
-cd openchart
+git clone https://github.com/yourusername/openscriber.git
+cd openscriber
 ```
 
 2. Create a virtual environment:

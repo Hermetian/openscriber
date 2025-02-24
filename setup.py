@@ -12,14 +12,14 @@ except FileNotFoundError:
     requirements = []
 
 setup(
-    name="openchart",
+    name="openscriber",
     version="0.1.0",
     author="Robert Cordwell",
     author_email="cordwell@gmial.com",
     description="A telemedicine transcription and analysis tool",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/openchart",
+    url="https://github.com/yourusername/openscriber",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -36,11 +36,11 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "openchart=openchart.openchart:main",
+            "openscriber=openscriber.openscriber:main",
         ],
     },
     include_package_data=True,
     package_data={
-        "openchart": ["resources/*"],
+        "openscriber": ["resources/*"],
     },
 )
